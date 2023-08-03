@@ -1,5 +1,5 @@
-use rustweb::{Context, ResponseFunc};
-
+use rustweb::context::Context;
+use rustweb::context::ResponseFunc;
 fn main() {
     let web = rustweb::build_server("127.0.0.1", 7878);
     web.get("/hello", hello_handler);
