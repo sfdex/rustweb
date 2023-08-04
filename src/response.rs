@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+
 pub struct Response {
     status_code: u32,
     status_message: String,

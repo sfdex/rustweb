@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use context::{Context, ResponseFunc};
+use context::{Context, ContextFn};
 use thread_pool::ThreadPool;
 
 pub mod context;
@@ -76,7 +76,7 @@ fn handle_connection(map: Arc<Mutex<HashMap<String, RequestMapping>>>, stream: T
 
     if let Some(mapping) = map.lock().unwrap().get(key) {
         if context.request.method != mapping.method {
-            context.error_with_status(403,String::from("Method Not Allowed"));
+            context.error_with_status(403, String::from("Method Not Allowed"));
             return;
         }
         let f = mapping.func;

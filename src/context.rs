@@ -1,15 +1,12 @@
-use crate::{request::Request, response::Response};
-use std::{cell::RefCell, fs, io::Write, net::TcpStream, rc::Rc};
+use crate::request::Request;
+use crate::response::Response;
+use std::fs;
+use std::io::prelude::*;
+use std::{cell::RefCell, net::TcpStream, rc::Rc};
 
 pub struct Context {
     pub request: Request,
-    stream: Rc<RefCell<TcpStream>>,
-}
-
-pub trait ResponseFunc {
-    fn json(&mut self, content: &str);
-    fn error(&mut self);
-    fn error_with_status(&mut self, code: u32, reason: String);
+    pub stream: Rc<RefCell<TcpStream>>,
 }
 
 impl Context {
@@ -21,7 +18,7 @@ impl Context {
             .to_string()
     }
 
-    pub fn new(mut stream: TcpStream) -> Context {
+    pub fn new(stream: TcpStream) -> Context {
         let stream = Rc::new(RefCell::new(stream));
 
         Context {
@@ -31,7 +28,13 @@ impl Context {
     }
 }
 
-impl ResponseFunc for Context {
+pub trait ContextFn {
+    fn json(&mut self, content: &str);
+    fn error(&mut self);
+    fn error_with_status(&mut self, code: u32, reason: String);
+}
+
+impl ContextFn for Context {
     fn json(&mut self, content: &str) {
         let mut response = Response::build();
 
@@ -50,8 +53,6 @@ impl ResponseFunc for Context {
             Ok(()) => (),
             Err(err) => println!("Response error: {}", err),
         }
-
-        self.stream.borrow_mut().flush().unwrap();
     }
 
     fn error(&mut self) {

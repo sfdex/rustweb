@@ -24,6 +24,7 @@ pub struct Request {
     pub queries: HashMap<String, String>,
     pub headers: HashMap<String, String>,
     stream: Rc<RefCell<TcpStream>>,
+    remaining:Vec<u8>,
 }
 
 impl Request {
@@ -66,27 +67,8 @@ impl Request {
         println!("{:#?}", headers);
         println!();
 
-        let length:usize = headers.get(&"Content-Length".to_string()).unwrap().to_string().parse().unwrap();
-        let mut bytes_remaining = length;
-        let mut result = Vec::new();
-        let mut buf = [0; 4096];
-        while bytes_remaining > 0 {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    result.extend_from_slice(&buf[0..n]);
-                    bytes_remaining -= n;
-                },
-                Err(e) => {
-                    eprintln!("Error while reading from stream: {}",e);
-                    break;
-                }
-            }
-        }
-
-        println!("length: {length}");
-        println!("bytes remaining: {bytes_remaining}");
-        println!("total: {}", result.len());
+        let remaining = reader.buffer();
+        // println!("remaining len: {}",remaining.len());
 
         Request {
             method,
@@ -95,31 +77,20 @@ impl Request {
             queries,
             headers,
             stream: Rc::clone(&stream),
+            remaining:remaining.to_vec(),
         }
     }
 
-    pub fn body(&self) -> Vec<u8> {
-        let mut result = Vec::new();
-        let mut buf = [0; 4096];
-        // self.stream.borrow_mut().read(&mut buf).unwrap();
+    pub fn body(&mut self) -> Vec<u8> {
+        let mut result = self.remaining.to_vec();
         let length: usize = self.header("Content-Length").parse().unwrap_or(0);
+        if length<=0 {
+            return result;
+        }
 
-        // let mut sum_size = 0;
-        // loop {
-        //     let mut buf = [0; 4096];
-        //     let size = self.stream.borrow_mut().read(&mut buf).unwrap();
-        //     println!("body size = {size}");
-        //     sum_size += size;
-        //     for i in 0..size {
-        //         result.push(buf[i]);
-        //     }
+        let mut buf = [0; 4096];
+        let mut bytes_remaining = length - result.len();
 
-        //     if size < 4096 {
-        //         break;
-        //     }
-        // }
-
-        let mut bytes_remaining = length;
         while bytes_remaining > 0 {
             match self.stream.borrow_mut().read(&mut buf) {
                 Ok(0) => break,
@@ -134,9 +105,9 @@ impl Request {
             }
         }
 
-        println!("length: {length}");
+        println!("content length: {length}");
         println!("bytes remaining: {bytes_remaining}");
-        println!("total: {}", result.len());
+        println!("body length: {}", result.len());
 
         result
     }
