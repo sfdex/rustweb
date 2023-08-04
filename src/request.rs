@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    io::{prelude::*, BufReader},
+    io::{prelude::*, BufReader, Error, ErrorKind},
     net::TcpStream,
     rc::Rc,
     str,
@@ -24,7 +24,7 @@ pub struct Request {
     pub queries: HashMap<String, String>,
     pub headers: HashMap<String, String>,
     stream: Rc<RefCell<TcpStream>>,
-    remaining:Vec<u8>,
+    remaining: Vec<u8>,
 }
 
 impl Request {
@@ -35,7 +35,7 @@ impl Request {
             .to_string()
     }
 
-    pub fn new(stream: Rc<RefCell<TcpStream>>) -> Request {
+    pub fn new(stream: Rc<RefCell<TcpStream>>) -> Result<Request, Error> {
         let mut binding = stream.borrow_mut();
         let mut reader = BufReader::new(&mut *binding);
 
@@ -43,6 +43,9 @@ impl Request {
         let mut request_line = String::new();
         reader.read_line(&mut request_line).unwrap();
         println!("Request line: {request_line}");
+        if request_line.is_empty() {
+            return Err(Error::new(ErrorKind::Unsupported, "request line is empty"));
+        }
 
         // Read the headers
         let mut header = String::new();
@@ -70,21 +73,21 @@ impl Request {
         let remaining = reader.buffer();
         // println!("remaining len: {}",remaining.len());
 
-        Request {
+        Ok(Request {
             method,
             path,
             version,
             queries,
             headers,
             stream: Rc::clone(&stream),
-            remaining:remaining.to_vec(),
-        }
+            remaining: remaining.to_vec(),
+        })
     }
 
     pub fn body(&mut self) -> Vec<u8> {
         let mut result = self.remaining.to_vec();
         let length: usize = self.header("Content-Length").parse().unwrap_or(0);
-        if length<=0 {
+        if length <= 0 {
             return result;
         }
 
@@ -97,9 +100,9 @@ impl Request {
                 Ok(n) => {
                     result.extend_from_slice(&buf[0..n]);
                     bytes_remaining -= n;
-                },
+                }
                 Err(e) => {
-                    eprintln!("Error while reading from stream: {}",e);
+                    eprintln!("Error while reading from stream: {}", e);
                     break;
                 }
             }

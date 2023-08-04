@@ -1,7 +1,7 @@
 use crate::request::Request;
 use crate::response::Response;
 use std::fs;
-use std::io::prelude::*;
+use std::io::{prelude::*, Error};
 use std::{cell::RefCell, net::TcpStream, rc::Rc};
 
 pub struct Context {
@@ -18,13 +18,18 @@ impl Context {
             .to_string()
     }
 
-    pub fn new(stream: TcpStream) -> Context {
+    pub fn new(stream: TcpStream) -> Result<Context,Error> {
         let stream = Rc::new(RefCell::new(stream));
 
-        Context {
-            request: Request::new(Rc::clone(&stream)),
-            stream,
-        }
+        let request_result = Request::new(Rc::clone(&stream));
+        return match request_result {
+            Ok(request)=>Result::Ok(Context {
+                request,
+                stream,
+            }),
+            Err(err)=>Result::Err(err),
+        };
+        
     }
 }
 

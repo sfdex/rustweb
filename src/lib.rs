@@ -71,17 +71,22 @@ impl RustWeb {
 }
 
 fn handle_connection(map: Arc<Mutex<HashMap<String, RequestMapping>>>, stream: TcpStream) {
-    let mut context = Context::new(stream);
-    let key = &context.request.path[..];
+    match Context::new(stream) {
+        Err(err) => println!("error occured: {}", err),
 
-    if let Some(mapping) = map.lock().unwrap().get(key) {
-        if context.request.method != mapping.method {
-            context.error_with_status(403, String::from("Method Not Allowed"));
-            return;
+        Ok(mut context) => {
+            let key = &context.request.path[..];
+
+            if let Some(mapping) = map.lock().unwrap().get(key) {
+                if context.request.method != mapping.method {
+                    context.error_with_status(403, String::from("Method Not Allowed"));
+                    return;
+                }
+                let f = mapping.func;
+                f(context);
+            } else {
+                context.error();
+            }
         }
-        let f = mapping.func;
-        f(context);
-    } else {
-        context.error();
     }
 }
