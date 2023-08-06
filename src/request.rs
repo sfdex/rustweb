@@ -27,6 +27,8 @@ pub struct Request {
     remaining: Vec<u8>,
 }
 
+pub mod mime;
+
 impl Request {
     pub fn header(&self, key: &str) -> String {
         self.headers
