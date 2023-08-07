@@ -7,6 +7,7 @@ use std::{
 use context::{Context, ContextFn};
 use thread_pool::ThreadPool;
 
+mod content_type;
 pub mod context;
 mod request;
 pub mod response;
@@ -72,7 +73,9 @@ impl RustWeb {
 
 fn handle_connection(map: Arc<Mutex<HashMap<String, RequestMapping>>>, stream: TcpStream) {
     match Context::new(stream) {
-        Err(err) => println!("error occured: {}", err),
+        Err(err) => {
+            println!("error occured: {}", err);
+        }
 
         Ok(mut context) => {
             let key = &context.request.path[..];

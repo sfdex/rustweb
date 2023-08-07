@@ -1,7 +1,7 @@
 use crate::request::Request;
 use crate::response::Response;
 use std::fs;
-use std::io::{prelude::*, Error, BufReader};
+use std::io::{prelude::*, BufReader, Error};
 use std::{cell::RefCell, net::TcpStream, rc::Rc};
 
 pub struct Context {
@@ -10,27 +10,15 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn get_header(&self, key: &str) -> String {
-        self.request
-            .headers
-            .get(key)
-            .unwrap_or(&String::from(""))
-            .to_string()
-    }
-
-    pub fn new(stream: TcpStream) -> Result<Context,Error> {
+    pub fn new(stream: TcpStream) -> Result<Context, Error> {
         let stream_clone = stream.try_clone().unwrap();
         let reader: BufReader<TcpStream> = BufReader::new(stream_clone);
         let mut request = Request::new(reader);
 
         return match request.init() {
-            Ok(())=>Result::Ok(Context {
-                request,
-                stream,
-            }),
-            Err(err)=>Result::Err(err),
+            Ok(()) => Result::Ok(Context { request, stream }),
+            Err(err) => Result::Err(err),
         };
-        
     }
 }
 
@@ -72,9 +60,7 @@ impl ContextFn for Context {
             content
         );
 
-        self.stream
-            .write_all(response.as_bytes())
-            .unwrap();
+        self.stream.write_all(response.as_bytes()).unwrap();
     }
 
     fn error_with_status(&mut self, code: u32, reason: String) {
@@ -89,8 +75,6 @@ impl ContextFn for Context {
             content
         );
 
-        self.stream
-            .write_all(response.as_bytes())
-            .unwrap();
+        self.stream.write_all(response.as_bytes()).unwrap();
     }
 }
