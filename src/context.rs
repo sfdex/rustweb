@@ -2,7 +2,8 @@ use crate::request::Request;
 use crate::response::Response;
 use std::fs;
 use std::io::{prelude::*, BufReader, Error};
-use std::{cell::RefCell, net::TcpStream, rc::Rc};
+use std::net::TcpStream;
+use std::time::Duration;
 
 pub struct Context {
     pub request: Request,
@@ -11,14 +12,22 @@ pub struct Context {
 
 impl Context {
     pub fn new(stream: TcpStream) -> Result<Context, Error> {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let stream_clone = stream.try_clone().unwrap();
         let reader: BufReader<TcpStream> = BufReader::new(stream_clone);
-        let mut request = Request::new(reader);
+        let request = Request::new(reader);
 
-        return match request.init() {
-            Ok(()) => Result::Ok(Context { request, stream }),
-            Err(err) => Result::Err(err),
-        };
+        let mut context = Context { request, stream };
+
+        match context.request.init() {
+            Ok(()) => Ok(context),
+            Err(err) => {
+                // context.error();
+                return Result::Err(err);
+            }
+        }
     }
 }
 

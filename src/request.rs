@@ -66,7 +66,15 @@ impl Request {
     pub fn init(&mut self) -> Result<()> {
         // Read the request line
         let mut request_line = String::new();
-        self.reader.read_line(&mut request_line).unwrap();
+        match self.reader.read_line(&mut request_line) {
+            Ok(n) if n > 0 => (),
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::ConnectionRefused,
+                    "No continious request",
+                ))
+            }
+        }
 
         println!("Request line: {request_line}");
         if request_line.is_empty() {
@@ -74,9 +82,11 @@ impl Request {
         }
 
         // let re = Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^\s]+ HTTP/1\.[01]$").unwrap();
-        let re = Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^\s]+ HTTP/1\.[01]").unwrap();
+        let re =
+            Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^\s]+ HTTP/1\.[01]")
+                .unwrap();
         // let re = Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^ ]+ HTTP/\d+\.\d+").unwrap();
-        if !re.is_match(&request_line){
+        if !re.is_match(&request_line) {
             return Err(Error::new(ErrorKind::Unsupported, "Not a HTTP request!"));
         }
 

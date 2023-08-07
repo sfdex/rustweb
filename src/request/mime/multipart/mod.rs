@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+mod part;
+
 struct Form(HashMap<String, String>);
 struct MultiPart {
     boundary:String,
