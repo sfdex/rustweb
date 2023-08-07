@@ -1,9 +1,7 @@
 use std::{
-    cell::RefCell,
     collections::HashMap,
     io::{prelude::*, BufReader, Error, ErrorKind},
     net::TcpStream,
-    rc::Rc,
     str,
 };
 
@@ -23,7 +21,8 @@ pub struct Request {
     pub version: String,
     pub queries: HashMap<String, String>,
     pub headers: HashMap<String, String>,
-    stream: Rc<RefCell<TcpStream>>,
+    // stream: Rc<TcpStream>,
+    reader: BufReader<TcpStream>,
     remaining: Vec<u8>,
 }
 
@@ -37,13 +36,22 @@ impl Request {
             .to_string()
     }
 
-    pub fn new(stream: Rc<RefCell<TcpStream>>) -> Result<Request, Error> {
-        let mut binding = stream.borrow_mut();
-        let mut reader = BufReader::new(&mut *binding);
+    pub fn new(reader: BufReader<TcpStream>) -> Request {
+        Request {
+            method: "".to_string(),
+            path: "".to_string(),
+            version: "".to_string(),
+            queries: HashMap::new(),
+            headers: HashMap::new(),
+            reader,
+            remaining: vec![],
+        }
+    }
 
+    pub fn init(&mut self) -> Result<(), Error> {
         // Read the request line
         let mut request_line = String::new();
-        reader.read_line(&mut request_line).unwrap();
+        self.reader.read_line(&mut request_line).unwrap();
         println!("Request line: {request_line}");
         if request_line.is_empty() {
             return Err(Error::new(ErrorKind::Unsupported, "request line is empty"));
@@ -53,7 +61,7 @@ impl Request {
         let mut header = String::new();
         loop {
             let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
+            self.reader.read_line(&mut line).unwrap();
 
             if line.trim().is_empty() {
                 break;
@@ -72,32 +80,29 @@ impl Request {
         println!("{:#?}", headers);
         println!();
 
-        let remaining = reader.buffer();
+        // let remaining = reader.buffer();
         // println!("remaining len: {}",remaining.len());
 
-        Ok(Request {
-            method,
-            path,
-            version,
-            queries,
-            headers,
-            stream: Rc::clone(&stream),
-            remaining: remaining.to_vec(),
-        })
+        self.method = method;
+        self.path = path;
+        self.version = version;
+        self.queries = queries;
+        self.headers = headers;
+        Ok(())
     }
 
     pub fn body(&mut self) -> Vec<u8> {
-        let mut result = self.remaining.to_vec();
+        let mut result = vec![];
         let length: usize = self.header("Content-Length").parse().unwrap_or(0);
         if length <= 0 {
             return result;
         }
 
         let mut buf = [0; 4096];
-        let mut bytes_remaining = length - result.len();
+        let mut bytes_remaining = length;
 
         while bytes_remaining > 0 {
-            match self.stream.borrow_mut().read(&mut buf) {
+            match self.reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     result.extend_from_slice(&buf[0..n]);

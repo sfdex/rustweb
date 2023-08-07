@@ -1,12 +1,12 @@
 use crate::request::Request;
 use crate::response::Response;
 use std::fs;
-use std::io::{prelude::*, Error};
+use std::io::{prelude::*, Error, BufReader};
 use std::{cell::RefCell, net::TcpStream, rc::Rc};
 
 pub struct Context {
     pub request: Request,
-    pub stream: Rc<RefCell<TcpStream>>,
+    pub stream: TcpStream,
 }
 
 impl Context {
@@ -19,11 +19,12 @@ impl Context {
     }
 
     pub fn new(stream: TcpStream) -> Result<Context,Error> {
-        let stream = Rc::new(RefCell::new(stream));
+        let stream_clone = stream.try_clone().unwrap();
+        let reader: BufReader<TcpStream> = BufReader::new(stream_clone);
+        let mut request = Request::new(reader);
 
-        let request_result = Request::new(Rc::clone(&stream));
-        return match request_result {
-            Ok(request)=>Result::Ok(Context {
+        return match request.init() {
+            Ok(())=>Result::Ok(Context {
                 request,
                 stream,
             }),
@@ -53,7 +54,7 @@ impl ContextFn for Context {
             content
         );
 
-        let ret = self.stream.borrow_mut().write_all(response.as_bytes());
+        let ret = self.stream.write_all(response.as_bytes());
         match ret {
             Ok(()) => (),
             Err(err) => println!("Response error: {}", err),
@@ -72,7 +73,6 @@ impl ContextFn for Context {
         );
 
         self.stream
-            .borrow_mut()
             .write_all(response.as_bytes())
             .unwrap();
     }
@@ -90,7 +90,6 @@ impl ContextFn for Context {
         );
 
         self.stream
-            .borrow_mut()
             .write_all(response.as_bytes())
             .unwrap();
     }
