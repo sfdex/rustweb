@@ -21,38 +21,6 @@ impl Part {
             body: Vec::new(),
         }
     }
-
-    fn body(
-        bufreader: &mut BufReader<TcpStream>,
-        multipart_reader: &mut Reader,
-    ) -> Result<Vec<u8>> {
-        if multipart_reader.current_bytes>=multipart_reader.content_length {
-            return Ok(vec![]);
-        }
-        let mut buf = vec![0;1024];
-        let mut result = Vec::new();
-
-        loop {
-            match bufreader.read(&mut buf){
-                Ok(n) =>{
-                    if n<=0 {
-                        return Ok(result);
-                    }
-
-                    let data = &buf[..n];
-                    // str::from_utf8(data);
-
-                    multipart_reader.current_bytes+=n;
-                    result.extend_from_slice(data);
-                },
-                Err(err) =>{
-                    return Err(err);
-                }
-            }
-        }
-        
-        // Err(Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe"))
-    }
 }
 
 // Reader is an iterator over parts in a MIME multipart body.
@@ -61,7 +29,8 @@ pub struct Reader {
     content_length: usize,
     pub current_part: Part,
     parts_read: usize,
-    current_bytes: usize,
+    bytes_read: usize,
+    remaining_bytes: Vec<u8>,
 
     nl: Vec<u8>,                 // "\r\n" or "\n" (set after seeing first boundary line)
     nl_dash_boundary: Vec<u8>,   // nl + "--boundary"
@@ -80,7 +49,8 @@ impl Reader {
         Self {
             content_length,
             current_part: Part::new(),
-            current_bytes: 0,
+            bytes_read: 0,
+            remaining_bytes: Vec::new(),
             parts_read: 0,
             nl: (&b[..2]).to_vec(),
             nl_dash_boundary: (&b[..boundary.len() + 2]).to_vec(),
@@ -94,7 +64,7 @@ impl Reader {
 
         // boundary
         if let Ok(n) = reader.read_until(b'\n', &mut buf) {
-            self.current_bytes += n;
+            self.bytes_read += n;
             let mut v = (&buf[..n]).to_vec();
             if v.ends_with(b"\r") {
                 v.pop();
@@ -113,7 +83,7 @@ impl Reader {
         let mut content_disposition = "";
         // Content-Disposition
         if let Ok(n) = reader.read_until(b'\n', &mut buf) {
-            self.current_bytes += n;
+            self.bytes_read += n;
             if buf.starts_with(b"Content-Disposition") {
                 content_disposition = str::from_utf8(&buf[..n]).unwrap().trim();
             } else {
@@ -126,7 +96,7 @@ impl Reader {
         let mut content_type_str = "";
         // Content-Type
         if let Ok(n) = reader.read_until(b'\n', &mut buf) {
-            self.current_bytes += n;
+            self.bytes_read += n;
             if buf.starts_with(b"Content-Type") {
                 content_type_str = str::from_utf8(&buf[..n]).unwrap().trim();
 
@@ -136,7 +106,7 @@ impl Reader {
                         if n == 0 {
                             return None;
                         }
-                        self.current_bytes += n;
+                        self.bytes_read += n;
                     }
                     Err(err) => {
                         println!("Content-Type in MultiPart error: {}", err);
@@ -168,6 +138,59 @@ impl Reader {
         }
 
         None
+    }
+
+    pub fn body(&mut self, bufreader: &mut BufReader<TcpStream>) -> Result<Vec<u8>> {
+        if self.bytes_read >= self.content_length {
+            return Ok(vec![]);
+        }
+        let mut buf = vec![0; 1024];
+        let mut result = Vec::new();
+
+        loop {
+            match bufreader.read(&mut buf) {
+                Ok(n) => {
+                    if n <= 0 {
+                        return Ok(result);
+                    }
+
+                    let data = &buf[..n];
+                    let mut lfs = Vec::new();
+                    for (i, c) in data.iter().enumerate() {
+                        if c == &b'\n' {
+                            if i > 0 && data[i - 1] == b'\r' {
+                                lfs.push(i);
+                            }
+                        }
+                    }
+
+                    // match nl-dash-boundary
+                    let mut matched_index = usize::MAX;
+                    for &i in lfs.iter() {
+                        let end = i + (self.nl_dash_boundary.len());
+
+                        if end < data.len() && &data[i..end] == self.nl_dash_boundary {
+                            matched_index = i;
+                        }
+                    }
+
+                    if matched_index != usize::MAX {
+                        result.extend_from_slice(&data[..matched_index]);
+                        // store remaining bytes
+                        self.remaining_bytes = (&data[matched_index..]).to_vec();
+                    } else {
+                        result.extend_from_slice(data);
+                    }
+
+                    self.bytes_read += n;
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
+
+        // Err(Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe"))
     }
 
     /*

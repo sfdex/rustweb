@@ -214,6 +214,11 @@ impl Request {
     pub fn next(&mut self) -> Option<&Part> {
         self.multipart.next(&mut self.reader)
     }
+
+    pub fn part_body(&mut self) -> Result<Vec<u8>>{
+        let multipart_reader = &mut self.multipart;
+        multipart_reader.body(&mut self.reader)
+    }
 }
 
 pub type MultiPart = Request;
