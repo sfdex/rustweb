@@ -1,12 +1,14 @@
 use crate::content_type::ContentType;
-use std::io::{prelude::*, BufReader};
+use std::io::{prelude::*, BufReader, Error, Result};
+use std::str;
 use std::{collections::HashMap, net::TcpStream};
 
 pub struct Part {
-    header: MIME_Header,
-    disposition: String,
-    disposition_params: HashMap<String, String>,
-    content_type: ContentType,
+    pub header: MIME_Header,
+    pub disposition: String,
+    pub disposition_params: HashMap<String, String>,
+    pub content_type: ContentType,
+    pub body: Vec<u8>,
 }
 
 impl Part {
@@ -16,132 +18,253 @@ impl Part {
             disposition: "".to_string(),
             disposition_params: HashMap::new(),
             content_type: ContentType::None,
+            body: Vec::new(),
         }
+    }
+
+    fn body(
+        bufreader: &mut BufReader<TcpStream>,
+        multipart_reader: &mut Reader,
+    ) -> Result<Vec<u8>> {
+        if multipart_reader.current_bytes>=multipart_reader.content_length {
+            return Ok(vec![]);
+        }
+        let mut buf = vec![0;1024];
+        let mut result = Vec::new();
+
+        loop {
+            match bufreader.read(&mut buf){
+                Ok(n) =>{
+                    if n<=0 {
+                        return Ok(result);
+                    }
+
+                    let data = &buf[..n];
+                    // str::from_utf8(data);
+
+                    multipart_reader.current_bytes+=n;
+                    result.extend_from_slice(data);
+                },
+                Err(err) =>{
+                    return Err(err);
+                }
+            }
+        }
+        
+        // Err(Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe"))
     }
 }
 
 // Reader is an iterator over parts in a MIME multipart body.
 // Reader's underlying parser consumes its input as needed. Seeking isn't supported.
-struct Reader {
-    reader: BufReader<TcpStream>,
+pub struct Reader {
     content_length: usize,
-    current_part: Part,
+    pub current_part: Part,
     parts_read: usize,
+    current_bytes: usize,
 
     nl: Vec<u8>,                 // "\r\n" or "\n" (set after seeing first boundary line)
-    boundary: Vec<u8>,           // boundary
-    nl_boundary: Vec<u8>,        // nl + boundary
     nl_dash_boundary: Vec<u8>,   // nl + "--boundary"
     dash_boundary_dash: Vec<u8>, // "--boundary--"
     dash_boundary: Vec<u8>,      // "--boundary"
-    boundary_dash: Vec<u8>,      // boundary--
 }
 
 impl Reader {
-    pub fn new(reader: BufReader<TcpStream>, boundary: String, content_length: usize) -> Self {
+    pub fn new(boundary: &str, content_length: usize) -> Self {
         // b := []byte("\r\n--" + boundary + "--")
         let mut b = Vec::new();
-        // b.extend_from_slice(b"\r\n--");
-
-        b.extend_from_slice(b"\r\n");
+        b.extend_from_slice(b"\r\n--");
         b.extend_from_slice(boundary.as_bytes());
         b.extend_from_slice(b"--");
 
         Self {
-            reader,
             content_length,
             current_part: Part::new(),
+            current_bytes: 0,
             parts_read: 0,
             nl: (&b[..2]).to_vec(),
-            boundary: boundary.as_bytes().to_vec(),
-            nl_boundary: (&b[..boundary.len() + 2]).to_vec(),
             nl_dash_boundary: (&b[..boundary.len() + 2]).to_vec(),
             dash_boundary_dash: (&b[2..]).to_vec(),
             dash_boundary: (&b[2..b.len() - 2]).to_vec(),
-            boundary_dash: (&b[2..]).to_vec(),
         }
     }
-}
 
-impl Iterator for Reader {
-    type Item = Part;
+    pub fn next(&mut self, reader: &mut BufReader<TcpStream>) -> Option<&Part> {
+        let mut buf = vec![0; 8192];
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buf = vec![0; 4096];
-        let reader = &mut self.reader;
+        // boundary
+        if let Ok(n) = reader.read_until(b'\n', &mut buf) {
+            self.current_bytes += n;
+            let mut v = (&buf[..n]).to_vec();
+            if v.ends_with(b"\r") {
+                v.pop();
+            }
+            if v == self.dash_boundary_dash {
+                println!("MultiPart end");
+                return None;
+            }
+            if v != self.dash_boundary {
+                return None;
+            }
+        } else {
+            return None;
+        }
+
+        let mut content_disposition = "";
+        // Content-Disposition
+        if let Ok(n) = reader.read_until(b'\n', &mut buf) {
+            self.current_bytes += n;
+            if buf.starts_with(b"Content-Disposition") {
+                content_disposition = str::from_utf8(&buf[..n]).unwrap().trim();
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+
+        let mut content_type_str = "";
+        // Content-Type
+        if let Ok(n) = reader.read_until(b'\n', &mut buf) {
+            self.current_bytes += n;
+            if buf.starts_with(b"Content-Type") {
+                content_type_str = str::from_utf8(&buf[..n]).unwrap().trim();
+
+                //Skip next blank line
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(n) => {
+                        if n == 0 {
+                            return None;
+                        }
+                        self.current_bytes += n;
+                    }
+                    Err(err) => {
+                        println!("Content-Type in MultiPart error: {}", err);
+                        return None;
+                    }
+                }
+            }
+        } else {
+            return None;
+        }
+
+        // Body
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => {
                     println!("MultiPart end");
                     break;
                 }
-                Ok(n) => process_part(
-                    &mut self.current_part,
-                    &buf[0..n],
-                    &self.nl,
-                    &self.boundary,
-                    &self.boundary_dash,
-                ),
+                Ok(n) => {
+                    println!("MultiPart read: {n}");
+                    self.process_part(&buf[0..n]);
+                    // part.content_type = self.current_part.content_type;
+                    return Some(&self.current_part);
+                }
                 Err(err) => {
                     println!("MultiPart error: {}", err)
                 }
             }
         }
 
-        // reader.
         None
     }
-}
 
-/*
-POST /foo HTTP/1.1
-Content-Length: 68137
-Content-Type: multipart/form-data; boundary=---------------------------974767299852498929531610575
+    /*
+    POST /foo HTTP/1.1
+    Content-Length: 68137
+    Content-Type: multipart/form-data; boundary=---------------------------974767299852498929531610575
 
------------------------------974767299852498929531610575
-Content-Disposition: form-data; name="description"
+    -----------------------------974767299852498929531610575
+    Content-Disposition: form-data; name="description"
 
-some text
------------------------------974767299852498929531610575
-Content-Disposition: form-data; name="myFile"; filename="foo.txt"
-Content-Type: text/plain
+    some text
+    -----------------------------974767299852498929531610575
+    Content-Disposition: form-data; name="myFile"; filename="foo.txt"
+    Content-Type: text/plain
 
-(content of the uploaded file foo.txt)
------------------------------974767299852498929531610575--
-*/
-fn process_part(
-    part: &mut Part,
-    buf: &[u8],
-    nl: &Vec<u8>,
-    boundary: &Vec<u8>,
-    boundary_dash: &Vec<u8>,
-) {
-    let parts: Vec<&[u8]> = buf.split(|&b| b == b'\n').collect();
+    (content of the uploaded file foo.txt)
+    -----------------------------974767299852498929531610575--
+    */
+    fn process_part(&mut self, buf: &[u8]) {
+        // println!(
+        //     "process_part: \n{}",
+        //     String::from_utf8(buf.to_vec()).unwrap()
+        // );
+        let parts: Vec<&[u8]> = buf.split(|&b| b == b'\n').collect();
 
-    let mut iter = parts.iter();
-    if let Some(&line_boundary) = iter.next() {
-        if line_boundary == boundary {
-            if let Some(&line_content_disposition) = iter.next() {
-                handle_content_disposition(part, line_content_disposition);
-                if let Some(&line_content_type) = iter.next() {
-                    part.content_type =
-                        ContentType::parse(&String::from_utf8(line_content_type.to_vec()).unwrap())
-                    // todo: process body
+        // println!("Parts content--");
+        // for part in parts.clone() {
+        //     println!("{}", String::from_utf8(part.to_vec()).unwrap());
+        // }
+        // println!("Parts content--");
+
+        let mut iter = parts.iter();
+        if let Some(&line_boundary) = iter.next() {
+            let mut line_boundary = line_boundary.to_vec();
+            if line_boundary.ends_with(b"\r") {
+                line_boundary.pop();
+            }
+            let line_boundary = &line_boundary[..];
+
+            if line_boundary == self.dash_boundary {
+                println!("Yes");
+                if let Some(&line_content_disposition) = iter.next() {
+                    self.handle_content_disposition(line_content_disposition);
+                    if let Some(&line_content_type) = iter.next() {
+                        let mut is_value = true;
+                        let line_content_type_str = String::from_utf8(line_content_type.to_vec())
+                            .unwrap()
+                            .trim()
+                            .to_string();
+                        if line_content_type_str.len() > 0 {
+                            self.current_part.content_type =
+                                ContentType::parse(&line_content_type_str);
+                            iter.next().unwrap();
+                            is_value = false;
+                        }
+
+                        let mut i = 0;
+                        while let Some(data) = iter.next() {
+                            if data.starts_with(&self.dash_boundary) {
+                                break;
+                            }
+                            if i > 0 {
+                                self.current_part.body.extend_from_slice(b"\n");
+                            }
+                            self.current_part.body.extend_from_slice(data);
+                            i += 1;
+                        }
+
+                        if is_value {
+                            let part: &mut Part = &mut self.current_part;
+                            part.disposition_params.insert(
+                                (&part.disposition[..]).to_string(),
+                                String::from_utf8((&part.body[..]).to_vec()).unwrap(),
+                            );
+                        }
+                    }
                 }
+            }
+        }
+    }
+
+    fn handle_content_disposition(&mut self, content_disposition: &[u8]) {
+        if content_disposition.starts_with(b"Content-Disposition") {
+            let str = String::from_utf8(content_disposition.to_vec()).unwrap();
+            let v: Vec<&str> = str.split(";").collect();
+            if v.len() >= 2 {
+                self.current_part.disposition = v[1].trim().to_string();
+            } else {
+                self.current_part.disposition = "".to_string();
             }
         }
     }
 }
 
-fn handle_content_disposition(part: &mut Part, content_disposition: &[u8]) {
-    if content_disposition.starts_with(b"Content-Disposition") {
-        let str = String::from_utf8(content_disposition.to_vec()).unwrap();
-        let v: Vec<&str> = str.split(";").collect();
-        if v.len() >= 2 {
-            part.disposition = v[1].trim().to_string();
-        }
-        part.disposition = "".to_string();
-    }
-}
+// impl Iterator for Reader {
+//     type Item = Part;
+//
+// }
 
 type MIME_Header = HashMap<String, Vec<String>>;

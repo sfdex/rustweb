@@ -7,7 +7,8 @@ use std::{
 
 use regex::Regex;
 
-use crate::content_type::ContentType;
+use crate::content_type::{self, ContentType};
+use crate::request::mime::multipart::part::{Part, Reader};
 
 /*
 POST /hello HTTP/1.1
@@ -28,10 +29,13 @@ pub struct Request {
     pub version: String,
     pub headers: HashMap<String, Vec<String>>,
     pub content_type: ContentType,
+    pub content_length: usize,
+    boundary: String,
     pub body: Vec<u8>,
     pub form: HashMap<String, Vec<String>>,
     pub post_form: HashMap<String, Vec<String>>,
-    reader: BufReader<TcpStream>,
+    pub reader: BufReader<TcpStream>,
+    multipart: Reader,
 }
 
 pub mod mime;
@@ -56,10 +60,13 @@ impl Request {
             version: "".to_string(),
             headers: HashMap::new(),
             content_type: ContentType::None,
+            content_length: 0,
+            boundary: "".to_string(),
             body: vec![],
             form: HashMap::new(),
             post_form: HashMap::new(),
             reader,
+            multipart: Reader::new("", 0),
         }
     }
 
@@ -114,8 +121,12 @@ impl Request {
         println!("{:#?}", headers);
         println!();
 
-        // let remaining = reader.buffer();
-        // println!("remaining len: {}",remaining.len());
+        let remaining = self.reader.buffer();
+        println!(
+            "remaining:\nlen: {}\n{}\n",
+            remaining.len(),
+            String::from_utf8(remaining.to_vec()).unwrap()
+        );
 
         self.method = method;
         self.uri = uri;
@@ -124,6 +135,15 @@ impl Request {
         self.form = queries;
         self.headers = headers;
         self.content_type = ContentType::parse(&&self.header_first("Content-Type"));
+        self.content_length = self.header_first("Content-Length").parse().unwrap_or(0);
+
+        match &self.content_type {
+            ContentType::MultiPart {
+                sub_type: _,
+                boundary,
+            } => self.boundary = boundary.clone(),
+            _ => (),
+        }
 
         println!("Content-Type: {:?}", self.content_type);
 
@@ -131,7 +151,7 @@ impl Request {
     }
 
     pub fn body(&mut self) -> Vec<u8> {
-        let length: usize = self.header_first("Content-Length").parse().unwrap_or(0);
+        let length = self.content_length;
         if length <= 0 {
             return vec![];
         }
@@ -185,7 +205,18 @@ impl Request {
             Err(e) => println!("Error occured when parse_post_form: {}", e),
         }
     }
+
+    pub fn multipart<'a>(&'a mut self) -> &'a mut MultiPart {
+        self.multipart = Reader::new(&self.boundary, self.content_length);
+        self
+    }
+
+    pub fn next(&mut self) -> Option<&Part> {
+        self.multipart.next(&mut self.reader)
+    }
 }
+
+pub type MultiPart = Request;
 
 //POST /hello?name=sfdex&age=18 HTTP/1.1
 fn parse_request_line(

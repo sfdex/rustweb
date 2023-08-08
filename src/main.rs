@@ -1,12 +1,13 @@
 use rustweb::context::{Context, ContextFn};
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::{prelude::*, BufReader};
 
 fn main() {
     let web = rustweb::build_server("127.0.0.1", 7878);
     web.get("/hello", hello_handler);
     web.post("/update", update_handler);
     web.post("/file/upload", upload_handler);
+    web.post("/file/multipart", multipart_handler);
     web.run();
 }
 
@@ -59,4 +60,16 @@ fn upload_handler(mut c: Context) {
     println!("Recv file size: {}", metadata.len());
     let content = "{\"code\":200,\"message\":\"Upload finish!\"}";
     c.json(content);
+}
+
+fn multipart_handler(mut c: Context) {
+    let reader = c.request.multipart();
+    // reader.next(&mut c.request.reader);
+
+    let part = reader.next().unwrap();
+    println!("disposition: {}", part.disposition);
+    println!("contentType: {:?}", part.content_type);
+    println!("body: {}",String::from_utf8((*part.body).to_vec()).unwrap());
+
+    c.ok();
 }

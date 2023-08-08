@@ -32,6 +32,7 @@ impl Context {
 }
 
 pub trait ContextFn {
+    fn ok(&mut self);
     fn json(&mut self, content: &str);
     fn error(&mut self);
     fn error_with_status(&mut self, code: u32, reason: String);
@@ -56,6 +57,11 @@ impl ContextFn for Context {
             Ok(()) => (),
             Err(err) => println!("Response error: {}", err),
         }
+    }
+
+    fn ok(&mut self){
+        let content = "{\"code\":200,\"message\":\"Upload finish!\"}";
+        self.json(content);
     }
 
     fn error(&mut self) {

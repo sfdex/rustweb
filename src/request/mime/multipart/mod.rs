@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-mod part;
+pub mod part;
 
 struct Form(HashMap<String, String>);
 struct MultiPart {

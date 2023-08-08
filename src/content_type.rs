@@ -14,11 +14,12 @@ impl ContentType {
         if content_type.is_empty() {
             return Self::None;
         }
-        
+
         let mut boundary = String::new();
         let sub_type: String = if content_type.contains(";") {
             let v: Vec<&str> = content_type.split(";").collect();
-            if content_type.contains("multipart") && content_type.contains("boundary") {
+            if content_type.contains("boundary=") {
+                let v: Vec<&str> = content_type.split("boundary=").collect();
                 boundary.push_str(v[1].trim());
             }
             let v: Vec<&str> = v[0].split("/").collect();
