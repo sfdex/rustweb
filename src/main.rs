@@ -72,7 +72,7 @@ fn multipart_handler(mut c: Context) {
     println!("contentType1: {:?}", part.content_type);
 
     let body = reader.part_body().unwrap();
-    println!("body1: {}", String::from_utf8((body).to_vec()).unwrap());
+    println!("body1: {}", String::from_utf8(body.to_vec()).unwrap());
 
     // Part 2
     let part = reader.next().unwrap();
@@ -80,7 +80,24 @@ fn multipart_handler(mut c: Context) {
     println!("contentType2: {:?}", part.content_type);
 
     let body = reader.part_body().unwrap();
-    println!("body2: {}", String::from_utf8((body).to_vec()).unwrap());
+    println!("body2: {}", String::from_utf8(body.to_vec()).unwrap());
+
+    // Part 3
+    let part = reader.next().unwrap();
+    println!("disposition3: {}", part.disposition);
+    println!("contentType3: {:?}", part.content_type);
+
+    let body = reader.part_body().unwrap();
+    println!("body3: {}", String::from_utf8(body.to_vec()).unwrap());
+    println!("body3: {:?}",body);
+
+    // Part 4
+    let part = reader.next().unwrap();
+    println!("disposition4: {}", part.disposition);
+    println!("contentType4: {:?}", part.content_type);
+
+    let body = reader.part_body().unwrap();
+    println!("body4: {}", String::from_utf8(body.to_vec()).unwrap());
 
     c.ok();
 }

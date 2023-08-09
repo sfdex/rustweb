@@ -1,4 +1,4 @@
-use crate::content_type::ContentType;
+use crate::content_type::{self, ContentType};
 use std::io::{prelude::*, BufReader, Error, ErrorKind, Result};
 use std::str;
 use std::{collections::HashMap, net::TcpStream};
@@ -31,6 +31,7 @@ pub struct Reader {
     parts_read: usize,
     bytes_read: usize,
     remaining_bytes: Vec<u8>,
+    is_end: bool,
 
     nl: Vec<u8>,                 // "\r\n" or "\n" (set after seeing first boundary line)
     nl_dash_boundary: Vec<u8>,   // nl + "--boundary"
@@ -51,6 +52,7 @@ impl Reader {
             current_part: Part::new(),
             bytes_read: 0,
             remaining_bytes: Vec::new(),
+            is_end: false,
             parts_read: 0,
             nl: (&b[..2]).to_vec(),
             nl_dash_boundary: (&b[..boundary.len() + 2]).to_vec(),
@@ -60,111 +62,44 @@ impl Reader {
     }
 
     pub fn next(&mut self, reader: &mut BufReader<TcpStream>) -> Option<&Part> {
-        // boundary
-        // --------------------------448997174532002976125364
-        // ----------------------------448997174532002976125364
-        let mut buf = Vec::new();
-        if let Ok(n) = reader.read_until(b'\n', &mut buf) {
-            // let mut buf = vec![0; 8192];
-            // if let Ok(n) = reader.read(&mut buf) {
-            self.bytes_read += n;
-            let mut v = (&buf[..n]).to_vec();
-            println!("boundary n = {n}");
-            println!("v: {:?}", v);
-            println!("v str: {}", String::from_utf8((&v[..]).to_vec()).unwrap());
-            v.pop();
-            if v.ends_with(b"\r") {
-                v.pop();
-            }
-            if v == self.dash_boundary_dash {
-                println!("MultiPart end");
-                return None;
-            }
-            if v != self.dash_boundary {
-                println!("dash_boundary not equal");
-                return None;
-            }
-        } else {
-            println!("dash_boundary error");
+        if self.is_end {
             return None;
         }
 
-        buf.clear();
-
-        // Content-Disposition
-        let mut content_disposition = String::new();
-        if let Ok(n) = reader.read_until(b'\n', &mut buf) {
-            self.bytes_read += n;
-            println!(
-                "Content-Disposition: {}",
-                str::from_utf8(&buf[..n]).unwrap()
-            );
-            if buf.starts_with(b"Content-Disposition") {
-                content_disposition.push_str(str::from_utf8(&buf[..n]).unwrap().trim());
-            } else {
-                println!("content_disposition error");
-                return None;
-            }
-        } else {
-            println!("content_disposition error read");
-            return None;
-        }
-
-        buf.clear();
-
-        // Content-Type
-        let mut content_type_str = String::new();
-        if let Ok(n) = reader.read_until(b'\n', &mut buf) {
-            self.bytes_read += n;
-            println!("Content-Type: {}", str::from_utf8(&buf[..n]).unwrap());
-            if buf.starts_with(b"Content-Type") {
-                content_type_str.push_str(str::from_utf8(&buf[..n]).unwrap().trim());
-
-                //Skip next blank line
-                match reader.read_until(b'\n', &mut buf) {
-                    Ok(n) => {
-                        if n == 0 {
-                            return None;
-                        }
-                        self.bytes_read += n;
-                    }
-                    Err(err) => {
-                        println!("Content-Type in MultiPart error: {}", err);
-                        return None;
-                    }
-                }
-            }
-        } else {
-            println!("content_type_str error read");
-            return None;
-        }
-
-        self.handle_content_disposition(content_disposition.as_bytes());
-        self.current_part.content_type = ContentType::parse(&content_type_str);
-
-        Some(&self.current_part)
-    }
-
-    pub fn next2(&mut self, reader: &mut BufReader<TcpStream>) -> Option<&Part> {
         let v = self.remaining_bytes.splitn(3, |&c| c == b'\n');
 
         let mut d = (&self.remaining_bytes[..]).to_vec();
-        let mut buf = vec![0; 8192];
+        let mut buf = vec![0; 1024];
         if v.count() < 3 {
+            println!("next2 read new");
+            println!(
+                "total: {}, current: {}",
+                self.content_length, self.bytes_read
+            );
+            if self.bytes_read >= self.content_length {
+                println!("next: previour full read, but end");
+                return None;
+            }
             match reader.read(&mut buf) {
                 Ok(n) => {
                     if n <= 0 {
+                        println!("next part error: n <= 0");
                         return None;
                     }
                     d.extend_from_slice(&buf[..n]);
                     self.bytes_read += n;
                 }
                 Err(err) => {
-                    println!("Part next error: {}", err);
+                    println!("next part error: {}", err);
                     return None;
                 }
             }
             self.remaining_bytes = Vec::new();
+        }
+
+        if !d.contains(&b'\n') {
+            println!("next no \\n");
+            return None;
         }
 
         let splits = d.splitn(3, |&c| c == b'\n');
@@ -180,6 +115,7 @@ impl Reader {
                         continue;
                     }
                     if line_boundary == self.dash_boundary_dash {
+                        println!("next no more part, end");
                         return None;
                     }
                 }
@@ -187,6 +123,7 @@ impl Reader {
                 1 => {
                     let mut line_disposition = line.to_vec();
                     if !line.starts_with(b"Content-Disposition") {
+                        println!("next Content-Disposition error");
                         return None;
                     }
                     if line_disposition.ends_with(b"\r") {
@@ -204,37 +141,34 @@ impl Reader {
                                 if line_type.ends_with(b"\r") {
                                     line_type.pop();
                                 }
+                                let content_type: Vec<&str> = str::from_utf8(&line_type)
+                                    .unwrap()
+                                    .split(":")
+                                    .into_iter()
+                                    .collect();
                                 self.current_part.content_type =
-                                    ContentType::parse(str::from_utf8(&line_type).unwrap());
+                                    ContentType::parse(content_type[1].trim());
                             } else {
-                                // blank line
-                                self.remaining_bytes.extend_from_slice(&line[2..]);
-                                // no '\r\n'
+                                self.remaining_bytes = (&line[2..]).to_vec(); // no '\r\n'
                             }
                         }
-                        return None;
                     } else {
                         // blank line
-                        self.remaining_bytes.extend_from_slice(&line[2..]); // no '\r\n'
-                        println!(
-                            "after content-type, remaining_bytes: {:?}",
-                            self.remaining_bytes
-                        );
+                        self.current_part.content_type = ContentType::None;
+                        self.remaining_bytes = (&line[2..]).to_vec(); // no '\r\n'
                     }
                 }
                 _ => (),
             }
         }
 
-        if !d.contains(&b'\n') {
-            return None;
-        }
+        self.parts_read += 1;
 
         Some(&self.current_part)
     }
 
     pub fn body(&mut self, bufreader: &mut BufReader<TcpStream>) -> Result<Vec<u8>> {
-        let size = 1024;
+        let size = 8192;
         let mut buf = vec![0; size];
         let mut result = Vec::new();
 
@@ -243,8 +177,6 @@ impl Reader {
         let mut out_dnd = 0;
 
         let len_nd = self.nl_dash_boundary.len();
-
-        println!("part body read start---");
 
         loop {
             let mut n = 0;
@@ -255,7 +187,7 @@ impl Reader {
                 if self.bytes_read >= self.content_length {
                     return Ok(vec![]);
                 }
-                
+
                 match bufreader.read(&mut buf) {
                     Ok(bytes) => {
                         if bytes <= 0 {
@@ -263,6 +195,7 @@ impl Reader {
                             return Ok(result);
                         }
                         n = bytes;
+                        self.bytes_read += n;
                         &buf[..n]
                     }
 
@@ -273,10 +206,6 @@ impl Reader {
                 }
             };
 
-            // let data = &buf[..n];
-            println!("part read n: {n}");
-            println!("part read str: {}", str::from_utf8(&data[..n]).unwrap());
-
             if out_dnd > 0 && n >= out_dnd {
                 let head = &result[out_doubt_index..]; // last remaining
                 let tail = &data[..out_dnd]; // now need
@@ -284,22 +213,19 @@ impl Reader {
                 full.extend_from_slice(head);
                 full.extend_from_slice(tail);
 
-                // println!("full: {:?}", full);
-                // println!("nldb: {:?}", self.nl_dash_boundary);
-
+                // found new boundary
                 if self.nl_dash_boundary == &full[..] {
-                    // self.remaining_bytes = (&data[out_dnd..]).to_vec(); // error
                     //remove previous data
                     let mut v = Vec::new();
                     v.extend_from_slice(&full[2..]);
                     v.extend_from_slice(&data[out_dnd..]);
                     self.remaining_bytes = v;
 
-                    println!(
-                        "Matched, next head s1: {}",
-                        str::from_utf8(&self.remaining_bytes[..]).unwrap()
-                    );
-                    println!("Matched, next head b1: {:?}", &self.remaining_bytes[..]);
+                    // println!(
+                    //     "Matched, next head s1: {}",
+                    //     str::from_utf8(&self.remaining_bytes[..]).unwrap()
+                    // );
+                    // println!("Matched, next head b1: {:?}", &self.remaining_bytes[..]);
 
                     for _ in 0..len_nd - out_dnd {
                         result.pop();
@@ -318,7 +244,6 @@ impl Reader {
             // find dash_boundary_dash
             for (i, c) in data.iter().enumerate() {
                 if c == &b'\r' {
-                    println!("found \\r: {i}");
                     let mut should_find = false;
                     should_find = if i + 1 < n {
                         data[i + 1] == b'\n'
@@ -331,13 +256,11 @@ impl Reader {
                         continue;
                     };
 
-                    println!("found \\n: {}", i + 1);
-
                     if i + 2 < n {
                         if data[i + 2] == b'-' {
                             if i + len_nd - 1 < n {
+                                // found new boundary
                                 if &data[i..i + len_nd] == self.nl_dash_boundary {
-                                    println!("Matched, index = {i}");
                                     matched_index = i;
                                     break;
                                 }
@@ -359,11 +282,16 @@ impl Reader {
                 result.extend_from_slice(&data[..matched_index]);
                 // store remaining bytes
                 self.remaining_bytes = (&data[matched_index + 2..]).to_vec();
-                println!(
-                    "Matched, next head s2: {}",
-                    str::from_utf8(&self.remaining_bytes[..]).unwrap()
-                );
-                println!("Matched, next head b2: {:?}", &self.remaining_bytes[..]);
+
+                if self.remaining_bytes == self.dash_boundary_dash {
+                    self.is_end = true;
+                }
+
+                // println!(
+                //     "Matched, next head s2: {}",
+                //     str::from_utf8(&self.remaining_bytes[..]).unwrap()
+                // );
+                // println!("Matched, next head b2: {:?}", &self.remaining_bytes[..]);
                 return Ok(result);
             } else {
                 result.extend_from_slice(data);
@@ -378,9 +306,9 @@ impl Reader {
             if dnd > 0 {
                 out_dnd = dnd;
                 out_doubt_index = result.len() - (len_nd - dnd);
-                println!("dnd = {dnd}");
-                println!("dout_index = {doubt_index}");
-                println!("out_doubt_index = {out_doubt_index}");
+                // println!("dnd = {dnd}");
+                // println!("dout_index = {doubt_index}");
+                // println!("out_doubt_index = {out_doubt_index}");
             }
 
             self.remaining_bytes = Vec::new();
