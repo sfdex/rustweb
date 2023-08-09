@@ -1,5 +1,5 @@
 use crate::content_type::ContentType;
-use std::io::{prelude::*, BufReader, Error, Result};
+use std::io::{prelude::*, BufReader, Error, ErrorKind, Result};
 use std::str;
 use std::{collections::HashMap, net::TcpStream};
 
@@ -144,8 +144,13 @@ impl Reader {
         if self.bytes_read >= self.content_length {
             return Ok(vec![]);
         }
-        let mut buf = vec![0; 1024];
+        let size = 8192;
+        let mut buf = vec![0; size];
         let mut result = Vec::new();
+        let mut out_dout_index = usize::MAX;
+        let mut out_dnd = 0;
+
+        let len_nd = self.nl_dash_boundary.len();
 
         loop {
             match bufreader.read(&mut buf) {
@@ -155,35 +160,83 @@ impl Reader {
                     }
 
                     let data = &buf[..n];
-                    let mut lfs = Vec::new();
+
+                    if out_dnd > 0 && n >= out_dnd {
+                        let head = &result[out_dout_index..]; // last remaining
+                        let tail = &data[..out_dnd]; // now need
+                        let mut full = Vec::new();
+                        full.extend_from_slice(head);
+                        full.extend_from_slice(tail);
+
+                        if self.nl_dash_boundary == &full[..] {
+                            // self.remaining_bytes = (&data[out_dnd..]).to_vec(); // error
+                            //remove previous data
+
+                            return Ok(result);
+                        }
+                    }
+
+                    let mut matched_index = size;
+                    let mut dout_index = size;
+                    let mut dnd = 0;
+
+                    // find dash_boundary_dash
                     for (i, c) in data.iter().enumerate() {
-                        if c == &b'\n' {
-                            if i > 0 && data[i - 1] == b'\r' {
-                                lfs.push(i);
+                        if c == &b'\r' {
+                            let mut should_find = false;
+                            should_find = if i + 1 < n {
+                                data[i + 1] == b'\n'
+                            } else {
+                                dnd = len_nd - 1;
+                                false
+                            };
+
+                            if !should_find {
+                                continue;
+                            };
+
+                            if i + 2 < n {
+                                if data[i + 2] == b'-' {
+                                    if i + len_nd - 1 < n {
+                                        if &data[i..i + len_nd] == self.nl_dash_boundary {
+                                            matched_index = i;
+                                            break;
+                                        }
+                                    } else {
+                                        dnd = i + len_nd - n; // need more
+                                    }
+                                }
+                            } else {
+                                dnd = len_nd - 2;
+                            }
+
+                            if dnd > 0 {
+                                dout_index = i;
                             }
                         }
                     }
 
-                    // match nl-dash-boundary
-                    let mut matched_index = usize::MAX;
-                    for &i in lfs.iter() {
-                        let end = i + (self.nl_dash_boundary.len());
-
-                        if end < data.len() && &data[i..end] == self.nl_dash_boundary {
-                            matched_index = i;
-                        }
-                    }
-
-                    if matched_index != usize::MAX {
+                    if matched_index != size {
                         result.extend_from_slice(&data[..matched_index]);
                         // store remaining bytes
                         self.remaining_bytes = (&data[matched_index..]).to_vec();
+                        return Ok(result);
                     } else {
                         result.extend_from_slice(data);
                     }
 
                     self.bytes_read += n;
+                    if self.bytes_read >= self.content_length {
+                        return Ok(result);
+                    }
+
+                    // cache doubt
+                    if dnd > 0 {
+                        out_dnd = dnd;
+                        out_dout_index = result.len() + dout_index;
+                    }
                 }
+
                 Err(err) => {
                     return Err(err);
                 }
