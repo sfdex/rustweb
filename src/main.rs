@@ -66,10 +66,21 @@ fn multipart_handler(mut c: Context) {
     let reader = c.request.multipart();
     // reader.next(&mut c.request.reader);
 
+    // Part 1
     let part = reader.next().unwrap();
-    println!("disposition: {}", part.disposition);
-    println!("contentType: {:?}", part.content_type);
-    println!("body: {}",String::from_utf8((*part.body).to_vec()).unwrap());
+    println!("disposition1: {}", part.disposition);
+    println!("contentType1: {:?}", part.content_type);
+
+    let body = reader.part_body().unwrap();
+    println!("body1: {}", String::from_utf8((body).to_vec()).unwrap());
+
+    // Part 2
+    let part = reader.next().unwrap();
+    println!("disposition2: {}", part.disposition);
+    println!("contentType2: {:?}", part.content_type);
+
+    let body = reader.part_body().unwrap();
+    println!("body2: {}", String::from_utf8((body).to_vec()).unwrap());
 
     c.ok();
 }

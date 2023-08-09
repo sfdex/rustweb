@@ -13,7 +13,7 @@ pub struct Context {
 impl Context {
     pub fn new(stream: TcpStream) -> Result<Context, Error> {
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
         let stream_clone = stream.try_clone().unwrap();
         let reader: BufReader<TcpStream> = BufReader::new(stream_clone);

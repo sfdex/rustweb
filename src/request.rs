@@ -212,7 +212,7 @@ impl Request {
     }
 
     pub fn next(&mut self) -> Option<&Part> {
-        self.multipart.next(&mut self.reader)
+        self.multipart.next2(&mut self.reader)
     }
 
     pub fn part_body(&mut self) -> Result<Vec<u8>>{
