@@ -5,10 +5,8 @@ use std::{
     str,
 };
 
-use regex::Regex;
-
-use crate::content_type::{self, ContentType};
-use crate::request::mime::multipart::part::{Part, Reader};
+use crate::content_type::ContentType;
+use crate::request::mime::multipart::{MultiPart, Part};
 
 /*
 POST /hello HTTP/1.1
@@ -21,6 +19,12 @@ name=John&Doe&age=30
 */
 
 const MAX_PARSE_BODY_SIZE: usize = 10 << 20; // 10MB
+
+const METHODS: &[&str] = &[
+    "GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "TRACE", "CONNECT",
+];
+
+const PROTOCOLS: &[&str] = &["HTTP/1.0", "HTTP/1.1", "HTTP/2"];
 
 pub struct Request {
     pub method: String,
@@ -35,7 +39,7 @@ pub struct Request {
     pub form: HashMap<String, Vec<String>>,
     pub post_form: HashMap<String, Vec<String>>,
     pub reader: BufReader<TcpStream>,
-    multipart: Reader,
+    multipart: MultiPart,
 }
 
 pub mod mime;
@@ -66,7 +70,7 @@ impl Request {
             form: HashMap::new(),
             post_form: HashMap::new(),
             reader,
-            multipart: Reader::new("", 0),
+            multipart: MultiPart::new("", 0),
         }
     }
 
@@ -83,21 +87,34 @@ impl Request {
             }
         }
 
-        println!("Request line: {request_line}");
         if request_line.is_empty() {
             return Err(Error::new(ErrorKind::Unsupported, "request line is empty"));
         }
 
-        // let re = Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^\s]+ HTTP/1\.[01]$").unwrap();
-        let re =
-            Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^\s]+ HTTP/1\.[01]")
-                .unwrap();
-        // let re = Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^ ]+ HTTP/\d+\.\d+").unwrap();
-        if !re.is_match(&request_line) {
+        /*
+        let reg: Regex = Regex::new(r"^(GET|POST|PUT|DELETE|OPTIONS|HEAD|TRACE|CONNECT) [^\s]+ HTTP/1\.[01]").unwrap();
+        if !reg.is_match(&request_line) {
             return Err(Error::new(ErrorKind::Unsupported, "Not a HTTP request!"));
         }
+        */
 
         let (method, uri, path, queries, version) = parse_request_line(&request_line);
+        if !METHODS.contains(&&method[..]) {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "Unsupported HTTP METHOD",
+            ));
+        }
+
+        if !PROTOCOLS.contains(&&version[..]) {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "Unsupported HTTP VERSION",
+            ));
+        }
+
+        // Println request line
+        println!("\n{}", request_line.trim());
 
         // Read the headers
         let mut header = String::new();
@@ -109,24 +126,20 @@ impl Request {
                 break;
             }
 
+            // Println headers
+            println!("{}", line.trim());
+
             header.push_str("\n");
             header.push_str(&line);
         }
 
         let headers = parse_request_header(&header);
-        println!("{request_line}");
-        if queries.len() > 0 {
-            println!("{:#?}", queries);
-        }
-        println!("{:#?}", headers);
+        // println!("{request_line}");
+        // if queries.len() > 0 {
+        //     println!("{:#?}", queries);
+        // }
+        // println!("{:#?}", headers);
         println!();
-
-        let remaining = self.reader.buffer();
-        println!(
-            "remaining:\nlen: {}\n{}\n",
-            remaining.len(),
-            String::from_utf8(remaining.to_vec()).unwrap()
-        );
 
         self.method = method;
         self.uri = uri;
@@ -145,7 +158,7 @@ impl Request {
             _ => (),
         }
 
-        println!("Content-Type: {:?}", self.content_type);
+        // println!("Content-Type: {:?}", self.content_type);
 
         Ok(())
     }
@@ -206,8 +219,8 @@ impl Request {
         }
     }
 
-    pub fn multipart<'a>(&'a mut self) -> &'a mut MultiPart {
-        self.multipart = Reader::new(&self.boundary, self.content_length);
+    pub fn multipart<'a>(&'a mut self) -> &'a mut Self {
+        self.multipart = MultiPart::new(&self.boundary, self.content_length);
         self
     }
 
@@ -215,13 +228,11 @@ impl Request {
         self.multipart.next(&mut self.reader)
     }
 
-    pub fn part_body(&mut self) -> Result<Vec<u8>>{
+    pub fn part_body(&mut self) -> Result<Vec<u8>> {
         let multipart_reader = &mut self.multipart;
         multipart_reader.body(&mut self.reader)
     }
 }
-
-pub type MultiPart = Request;
 
 //POST /hello?name=sfdex&age=18 HTTP/1.1
 fn parse_request_line(

@@ -1,6 +1,6 @@
 use rustweb::context::{Context, ContextFn};
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::prelude::*;
 
 fn main() {
     let web = rustweb::build_server("127.0.0.1", 7878);
@@ -89,7 +89,7 @@ fn multipart_handler(mut c: Context) {
 
     let body = reader.part_body().unwrap();
     println!("body3: {}", String::from_utf8(body.to_vec()).unwrap());
-    println!("body3: {:?}",body);
+    println!("body3: {:?}", body);
 
     // Part 4
     let part = reader.next().unwrap();
