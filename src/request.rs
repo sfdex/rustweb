@@ -24,6 +24,12 @@ const METHODS: &[&str] = &[
     "GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "TRACE", "CONNECT",
 ];
 
+/*
+HTTP/1.0:   November 1996, Building extensibility
+HTTP/1.1:   January 1997, The standardizedprotocol
+HTTP/2:     May 2015, A protocol for greater performance
+HTTP/3:     HTTP over QUIC
+*/
 const PROTOCOLS: &[&str] = &["HTTP/1.0", "HTTP/1.1", "HTTP/2"];
 
 pub struct Request {
@@ -133,12 +139,6 @@ impl Request {
             header.push_str(&line);
         }
 
-        let headers = parse_request_header(&header);
-        // println!("{request_line}");
-        // if queries.len() > 0 {
-        //     println!("{:#?}", queries);
-        // }
-        // println!("{:#?}", headers);
         println!();
 
         self.method = method;
@@ -146,7 +146,7 @@ impl Request {
         self.path = path;
         self.version = version;
         self.form = queries;
-        self.headers = headers;
+        self.headers = parse_request_header(&header);
         self.content_type = ContentType::parse(&&self.header_first("Content-Type"));
         self.content_length = self.header_first("Content-Length").parse().unwrap_or(0);
 
@@ -157,8 +157,6 @@ impl Request {
             } => self.boundary = boundary.clone(),
             _ => (),
         }
-
-        // println!("Content-Type: {:?}", self.content_type);
 
         Ok(())
     }
