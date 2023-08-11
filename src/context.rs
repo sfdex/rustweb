@@ -1,7 +1,9 @@
 use crate::request::Request;
-use crate::response::Response;
-use std::fs;
-use std::io::{prelude::*, BufReader, Error};
+use crate::response::status::Status;
+use crate::response::{FileBody, JsonBody, NoneContent, Response};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, Error};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -33,63 +35,39 @@ impl Context {
 
 pub trait ContextFn {
     fn ok(&mut self);
-    fn json(&mut self, content: &str);
+    fn json(&mut self, content: &[u8]);
     fn error(&mut self);
-    fn error_with_status(&mut self, code: u32, reason: String);
+    fn error_with_status(&mut self, status: Status);
 }
 
 impl ContextFn for Context {
-    fn json(&mut self, content: &str) {
-        let mut response = Response::build();
-
-        response.add_header("Content-Type", "application/json");
-        response.add_header("Content-Length", &format!("{}", content.len()));
-
-        let response = format!(
-            "{}\r\n{}\r\n\r\n{}",
-            response.get_status_line(),
-            response.get_header(),
-            content
+    fn json(&mut self, content: &[u8]) {
+        let mut response = Response::new(
+            Status::OK,
+            HashMap::new(),
+            Box::new(JsonBody::new(content)),
         );
-
-        let ret = self.stream.write_all(response.as_bytes());
-        match ret {
-            Ok(()) => (),
-            Err(err) => println!("Response error: {}", err),
-        }
+        response.response(self).unwrap();
     }
 
-    fn ok(&mut self){
-        let content = "{\"code\":200,\"message\":\"Upload finish!\"}";
+    fn ok(&mut self) {
+        let content = b"{\"code\":200,\"message\":\"Upload finish!\"}";
         self.json(content);
     }
 
     fn error(&mut self) {
-        let mut response = Response::build_error(404, "NOT FOUND".to_string());
-        let content = fs::read_to_string("404.html").unwrap();
-        response.add_header("Content-Length", &format!("{}", content.len()));
-        let response = format!(
-            "{}\r\n{}\r\n\r\n{}",
-            response.get_status_line(),
-            response.get_header(),
-            content
-        );
+        let body = FileBody {
+            file: File::open("404.html").unwrap(),
+            mime_type: "text/html",
+            disposition: "",
+        };
+        let mut response = Response::new(Status::NotFound, HashMap::new(), Box::new(body));
 
-        self.stream.write_all(response.as_bytes()).unwrap();
+        response.response(self).unwrap();
     }
 
-    fn error_with_status(&mut self, code: u32, reason: String) {
-        let mut response = Response::build_error(code, reason);
-        let content = "{\"code\":-1,\"message\":\"method error\"}";
-        response.add_header("Content-Type", "application/json");
-        response.add_header("Content-Length", &format!("{}", content.len()));
-        let response = format!(
-            "{}\r\n{}\r\n\r\n{}",
-            response.get_status_line(),
-            response.get_header(),
-            content
-        );
-
-        self.stream.write_all(response.as_bytes()).unwrap();
+    fn error_with_status(&mut self, status: Status) {
+        let mut response = Response::new(status, HashMap::new(), Box::new(NoneContent));
+        response.response(self).unwrap();
     }
 }

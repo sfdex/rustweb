@@ -13,7 +13,7 @@ fn main() {
 
 fn hello_handler(mut c: Context) {
     let content = "{\"code\":200,\"message\":\"\"}";
-    c.json(content);
+    c.json(content.as_bytes());
 }
 
 fn update_handler(mut c: Context) {
@@ -23,7 +23,7 @@ fn update_handler(mut c: Context) {
     // println!("body: len = {}",body.len());
     c.request.parse_post_form();
     println!("form: {:?}", c.request.post_form);
-    c.json(content);
+    c.json(content.as_bytes());
 }
 
 fn upload_handler(mut c: Context) {
@@ -59,7 +59,7 @@ fn upload_handler(mut c: Context) {
     let metadata = file.metadata().unwrap();
     println!("Recv file size: {}", metadata.len());
     let content = "{\"code\":200,\"message\":\"Upload finish!\"}";
-    c.json(content);
+    c.json(content.as_bytes());
 }
 
 fn multipart_handler(mut c: Context) {

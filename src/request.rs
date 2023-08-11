@@ -25,6 +25,7 @@ const METHODS: &[&str] = &[
 ];
 
 /*
+HTTP/0.9:   August1991, The one-line protocol
 HTTP/1.0:   November 1996, Building extensibility
 HTTP/1.1:   January 1997, The standardizedprotocol
 HTTP/2:     May 2015, A protocol for greater performance

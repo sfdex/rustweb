@@ -1,6 +1,7 @@
 use context::{Context, ContextFn};
 use std::net::{TcpListener, TcpStream};
 use thread_pool::ThreadPool;
+use crate::response::status::Status;
 
 mod content_type;
 pub mod context;
@@ -66,7 +67,7 @@ fn handle_connection(stream: TcpStream) {
 
             if let Some(mapping) = router::find(key) {
                 if context.request.method != mapping.method {
-                    context.error_with_status(403, String::from("Method Not Allowed"));
+                    context.error_with_status(Status::MethodNotAllowed);
                     return;
                 }
                 let f = mapping.func;
