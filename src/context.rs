@@ -1,6 +1,7 @@
 use crate::request::Request;
 use crate::response::status::Status;
 use crate::response::{FileBody, JsonBody, NoneContent, Response};
+use crate::Connection;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error};
@@ -13,15 +14,18 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(stream: TcpStream) -> Result<Context, Error> {
-        stream
+    pub fn new(conn: Connection) -> Result<Context, Error> {
+        conn.stream
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
-        let stream_clone = stream.try_clone().unwrap();
+        let stream_clone = conn.stream.try_clone().unwrap();
         let reader: BufReader<TcpStream> = BufReader::new(stream_clone);
-        let request = Request::new(reader);
+        let request = Request::new(reader, conn.address);
 
-        let mut context = Context { request, stream };
+        let mut context = Context {
+            request,
+            stream: conn.stream,
+        };
 
         match context.request.init() {
             Ok(()) => Ok(context),
@@ -42,11 +46,8 @@ pub trait ContextFn {
 
 impl ContextFn for Context {
     fn json(&mut self, content: &[u8]) {
-        let mut response = Response::new(
-            Status::OK,
-            HashMap::new(),
-            Box::new(JsonBody::new(content)),
-        );
+        let mut response =
+            Response::new(Status::OK, HashMap::new(), Box::new(JsonBody::new(content)));
         response.response(self).unwrap();
     }
 

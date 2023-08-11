@@ -1,7 +1,7 @@
-use context::{Context, ContextFn};
-use std::net::{TcpListener, TcpStream};
-use thread_pool::ThreadPool;
 use crate::response::status::Status;
+use context::{Context, ContextFn};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use thread_pool::ThreadPool;
 
 mod content_type;
 pub mod context;
@@ -13,6 +13,11 @@ mod thread_pool;
 pub struct RustWeb {
     address: String,
     port: u32,
+}
+
+pub struct Connection {
+    address: SocketAddr,
+    stream: TcpStream,
 }
 
 pub fn build_server(address: &str, port: u32) -> RustWeb {
@@ -46,18 +51,19 @@ impl RustWeb {
         let pool = ThreadPool::new(4);
         let listener = TcpListener::bind(format!("{}:{}", self.address, self.port)).unwrap();
 
-        for stream in listener.incoming() {
-            let stream = stream.unwrap();
+        // for stream in listener.incoming() {}
+        while let Ok((stream, address)) = listener.accept() {
+            let connection = Connection { stream, address };
 
             pool.excute(move || {
-                handle_connection(stream);
+                handle_connection(connection);
             });
         }
     }
 }
 
-fn handle_connection(stream: TcpStream) {
-    match Context::new(stream) {
+fn handle_connection(conn: Connection) {
+    match Context::new(conn) {
         Err(err) => {
             println!("error occured: {}", err);
         }

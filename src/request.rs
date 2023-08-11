@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{prelude::*, BufReader, Error, ErrorKind, Result},
-    net::TcpStream,
+    net::{SocketAddr, TcpStream},
     str,
 };
 
@@ -34,6 +34,7 @@ HTTP/3:     HTTP over QUIC
 const PROTOCOLS: &[&str] = &["HTTP/1.0", "HTTP/1.1", "HTTP/2"];
 
 pub struct Request {
+    pub address: SocketAddr,
     pub method: String,
     pub uri: String,
     pub path: String,
@@ -63,8 +64,9 @@ impl Request {
         }
     }
 
-    pub fn new(reader: BufReader<TcpStream>) -> Request {
+    pub fn new(reader: BufReader<TcpStream>, address: SocketAddr) -> Request {
         Request {
+            address,
             method: "".to_string(),
             uri: "".to_string(),
             path: "".to_string(),

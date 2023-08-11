@@ -4,10 +4,14 @@ use std::io::prelude::*;
 
 fn main() {
     let web = rustweb::build_server("127.0.0.1", 7878);
+
     web.get("/hello", hello_handler);
+    web.get("/net/ip", ip_handler);
+
     web.post("/update", update_handler);
     web.post("/file/upload", upload_handler);
     web.post("/file/multipart", multipart_handler);
+    
     web.run();
 }
 
@@ -64,40 +68,30 @@ fn upload_handler(mut c: Context) {
 
 fn multipart_handler(mut c: Context) {
     let reader = c.request.multipart();
-    // reader.next(&mut c.request.reader);
 
-    // Part 1
-    let part = reader.next().unwrap();
-    println!("disposition1: {}", part.disposition);
-    println!("contentType1: {:?}", part.content_type);
+    loop {
+        let part = reader.next();
+        if let None = part {
+            break;
+        }
+        let part = part.unwrap();
+        println!("disposition: {}", part.disposition);
+        println!("contentType: {:?}", part.content_type);
 
-    let body = reader.part_body().unwrap();
-    println!("body1: {}", String::from_utf8(body.to_vec()).unwrap());
-
-    // Part 2
-    let part = reader.next().unwrap();
-    println!("disposition2: {}", part.disposition);
-    println!("contentType2: {:?}", part.content_type);
-
-    let body = reader.part_body().unwrap();
-    println!("body2: {}", String::from_utf8(body.to_vec()).unwrap());
-
-    // Part 3
-    let part = reader.next().unwrap();
-    println!("disposition3: {}", part.disposition);
-    println!("contentType3: {:?}", part.content_type);
-
-    let body = reader.part_body().unwrap();
-    println!("body3: {}", String::from_utf8(body.to_vec()).unwrap());
-    println!("body3: {:?}", body);
-
-    // Part 4
-    let part = reader.next().unwrap();
-    println!("disposition4: {}", part.disposition);
-    println!("contentType4: {:?}", part.content_type);
-
-    let body = reader.part_body().unwrap();
-    println!("body4: {}", String::from_utf8(body.to_vec()).unwrap());
+        let body = reader.part_body().unwrap();
+        println!("body: {}", String::from_utf8(body.to_vec()).unwrap());
+    }
 
     c.ok();
+}
+
+fn ip_handler(mut c: Context) {
+    let x_real_ip = c.request.header_first("X-Real-IP");
+    let ip = if !x_real_ip.is_empty() {
+        x_real_ip
+    } else {
+        c.request.address.ip().to_string()
+    };
+    let content = format!("{{\"code\":200,\"ip\":\"{}\"}}", ip);
+    c.json(content.as_bytes());
 }
