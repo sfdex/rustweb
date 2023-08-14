@@ -208,6 +208,10 @@ impl Request {
     }
 
     pub fn parse_post_form(&mut self) {
+        if self.method != "POST" {
+            return;
+        }
+
         let body = if self.body.len() > 0 {
             self.body.to_vec()
         } else {
@@ -221,17 +225,30 @@ impl Request {
     }
 
     pub fn multipart<'a>(&'a mut self) -> &'a mut Self {
-        self.multipart = MultiPart::new(&self.boundary, self.content_length);
+        if self.method == "POST" {
+            self.multipart = MultiPart::new(&self.boundary, self.content_length);
+        }
         self
     }
 
     pub fn next(&mut self) -> Option<&Part> {
-        self.multipart.next(&mut self.reader)
+        if self.method == "POST" {
+            self.multipart.next(&mut self.reader)
+        } else {
+            None
+        }
     }
 
     pub fn part_body(&mut self) -> Result<Vec<u8>> {
-        let multipart_reader = &mut self.multipart;
-        multipart_reader.body(&mut self.reader)
+        if self.method == "POST" {
+            let multipart_reader = &mut self.multipart;
+            multipart_reader.body(&mut self.reader)
+        } else {
+            Err(Error::new(
+                ErrorKind::Unsupported,
+                format!("there is no part, method: {}", self.method),
+            ))
+        }
     }
 }
 
