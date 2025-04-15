@@ -53,7 +53,7 @@ pub struct JsonBody {
 pub struct FileBody {
     pub file: File,
     pub mime_type: &'static str,
-    pub disposition: &'static str,
+    pub disposition: String,
 }
 
 impl Body for NoneContent {}
@@ -137,6 +137,16 @@ impl Body for JsonBody {
     }
 }
 
+impl FileBody {
+    pub fn new(file: File, mime_type: &'static str, disposition: String) -> Self {
+        Self {
+            file,
+            mime_type,
+            disposition,
+        }
+    }
+}
+
 impl Body for FileBody {
     fn get_content(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
         self.file.read(buf)
@@ -151,7 +161,7 @@ impl Body for FileBody {
     }
 
     fn get_content_disposition(&self) -> &str {
-        self.disposition
+        &self.disposition
     }
 }
 
@@ -235,7 +245,11 @@ impl Response {
         let body = &mut self.body;
         let content_length = body.get_content_length().unwrap_or(0);
         if content_length > 0 {
-            let mut buf = vec![0; 10];
+            let mut buf = if content_length < 8 * 1024 {
+                vec![0u8; 8 * 1024]
+            } else {
+                vec![0u8; content_length]
+            };
             let mut writed = 0usize;
             loop {
                 match body.get_content(&mut buf) {

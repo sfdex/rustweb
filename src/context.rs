@@ -40,27 +40,35 @@ impl Context {
 pub trait ContextFn {
     fn ok(&mut self);
     fn json(&mut self, content: &[u8]);
+    fn file(&mut self, file: File, filename: String);
     fn error(&mut self);
     fn error_with_status(&mut self, status: Status);
 }
 
 impl ContextFn for Context {
+    fn ok(&mut self) {
+        let content = b"{\"code\":200,\"message\":\"Upload finish!\"}";
+        self.json(content);
+    }
+
     fn json(&mut self, content: &[u8]) {
         let mut response =
             Response::new(Status::OK, HashMap::new(), Box::new(JsonBody::new(content)));
         response.response(self).unwrap();
     }
 
-    fn ok(&mut self) {
-        let content = b"{\"code\":200,\"message\":\"Upload finish!\"}";
-        self.json(content);
+    fn file(&mut self, file: File, filename: String) {
+        let disposition = format!("attachment; filename={}", filename);
+        let body = FileBody::new(file, "application/octet-stream", disposition);
+        let mut response = Response::new(Status::OK, HashMap::new(), Box::new(body));
+        response.response(self).unwrap()
     }
 
     fn error(&mut self) {
         let body = FileBody {
             file: File::open("404.html").unwrap(),
             mime_type: "text/html",
-            disposition: "",
+            disposition: "".to_string(),
         };
         let mut response = Response::new(Status::NotFound, HashMap::new(), Box::new(body));
 

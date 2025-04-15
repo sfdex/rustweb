@@ -20,7 +20,7 @@ pub fn insert(key: &str, value: RoutingItem) {
         if let None = ROUTER {
             ROUTER = Some(HashMap::new());
         }
-        ROUTER.as_mut().unwrap().insert(key.to_string(),value);
+        ROUTER.as_mut().unwrap().insert(key.to_string(), value);
     }
 }
 
@@ -29,6 +29,12 @@ pub fn find(key: &str) -> Option<&'static RoutingItem> {
         if let None = ROUTER {
             ROUTER = Some(HashMap::new());
         }
-        return ROUTER.as_ref().unwrap().get(key);
+        let new_key = if key.contains("?") {
+            let v: &str = key.split("?").collect::<Vec<&str>>()[0];
+            v
+        } else {
+            key
+        };
+        ROUTER.as_ref().unwrap().get(new_key)
     }
 }

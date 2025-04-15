@@ -38,6 +38,7 @@ pub struct Request {
     pub method: String,
     pub uri: String,
     pub path: String,
+    pub query: HashMap<String, String>,
     pub version: String,
     pub headers: HashMap<String, Vec<String>>,
     pub content_type: ContentType,
@@ -64,12 +65,20 @@ impl Request {
         }
     }
 
+    pub fn query(&self, key: &str) -> String {
+        match self.query.get(key) {
+            None => "".to_string(),
+            Some(value) => value.to_string(),
+        }
+    }
+
     pub fn new(reader: BufReader<TcpStream>, address: SocketAddr) -> Request {
         Request {
             address,
             method: "".to_string(),
             uri: "".to_string(),
             path: "".to_string(),
+            query: HashMap::new(),
             version: "".to_string(),
             headers: HashMap::new(),
             content_type: ContentType::None,
@@ -88,10 +97,17 @@ impl Request {
         let mut request_line = String::new();
         match self.reader.read_line(&mut request_line) {
             Ok(n) if n > 0 => (),
+            Err(e)=> { 
+                println!("Error when read request line: {}", e);
+                return Err(Error::new(
+                    ErrorKind::ConnectionRefused,
+                    "No continuous request"
+                ))
+            }
             _ => {
                 return Err(Error::new(
                     ErrorKind::ConnectionRefused,
-                    "No continious request",
+                    "No continuous request",
                 ))
             }
         }
@@ -148,7 +164,7 @@ impl Request {
         self.uri = uri;
         self.path = path;
         self.version = version;
-        self.form = queries;
+        self.query = queries;
         self.headers = parse_request_header(&header);
         self.content_type = ContentType::parse(&&self.header_first("Content-Type"));
         self.content_length = self.header_first("Content-Length").parse().unwrap_or(0);
@@ -220,7 +236,7 @@ impl Request {
 
         match String::from_utf8(body) {
             Ok(content) => parse_form(&content, &mut self.post_form),
-            Err(e) => println!("Error occured when parse_post_form: {}", e),
+            Err(e) => println!("Error occurred when parse_post_form: {}", e),
         }
     }
 
@@ -255,19 +271,18 @@ impl Request {
 //POST /hello?name=sfdex&age=18 HTTP/1.1
 fn parse_request_line(
     request_line: &str,
-) -> (String, String, String, HashMap<String, Vec<String>>, String) {
+) -> (String, String, String, HashMap<String, String>, String) {
     let v: Vec<&str> = request_line.split_whitespace().collect();
 
     let uri = v[1];
-    let mut queries: HashMap<String, Vec<String>> = HashMap::new();
+    let mut queries: HashMap<String, String> = HashMap::new();
     let mut path = uri.to_string();
 
     // parse queries
     if let Some((path_in_uri, queries_str)) = uri.split_once("?") {
         path = path_in_uri.to_string();
-        parse_form(queries_str, &mut queries);
+        parse_query(queries_str, &mut queries);
     }
-
     (
         v[0].to_string(),
         uri.to_string(),
@@ -300,6 +315,16 @@ fn parse_form(forms: &str, map: &mut HashMap<String, Vec<String>>) {
         if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
             let values = map.entry(k.to_string()).or_insert(vec![]);
             values.push(v.trim().to_string());
+        }
+    }
+}
+
+fn parse_query(query: &str, map: &mut HashMap<String, String>) {
+    //let mut map: HashMap<String, String> = HashMap::new();
+    for pair in query.split("&") {
+        let mut parts = pair.splitn(2, "=");
+        if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+            map.insert(k.trim().to_string(), v.trim().to_string());
         }
     }
 }

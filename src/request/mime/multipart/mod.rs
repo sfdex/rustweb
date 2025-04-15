@@ -3,6 +3,26 @@ use std::io::{prelude::*, BufReader, Result};
 use std::str;
 use std::{collections::HashMap, net::TcpStream};
 
+/*
+POST /foo HTTP/1.1
+Content-Length: 68137
+Content-Type: multipart/form-data; boundary=---------------------------974767299852498929531610575
+
+-----------------------------974767299852498929531610575
+Content-Disposition: form-data; name="name"
+
+sfdex
+-----------------------------974767299852498929531610575
+Content-Disposition: form-data; name="age"
+
+20
+-----------------------------974767299852498929531610575
+Content-Disposition: form-data; name="myFile"; filename="foo.txt"
+Content-Type: text/plain
+
+(content of the file foo.txt)
+-----------------------------974767299852498929531610575--
+*/
 pub struct Part {
     pub header: MIME_Header,
     pub disposition: String,
@@ -77,7 +97,7 @@ impl MultiPart {
                 self.content_length, self.bytes_read
             );
             if self.bytes_read >= self.content_length {
-                println!("next: previour full read, but end");
+                println!("next: previous full read, but end");
                 return None;
             }
             match reader.read(&mut buf) {
@@ -112,6 +132,7 @@ impl MultiPart {
                         line_boundary.pop();
                     }
                     if line_boundary == self.dash_boundary {
+                        println!("{}", String::from_utf8_lossy(&line_boundary));
                         continue;
                     }
                     if line_boundary == self.dash_boundary_dash {
@@ -133,9 +154,10 @@ impl MultiPart {
                         line_disposition.pop();
                     }
                     self.handle_content_disposition(&line_disposition);
+                    println!("{}", String::from_utf8_lossy(&line_disposition));
                 }
 
-                // The Content-Type element only occures when part is file
+                // The Content-Type element only occurs when part is file
                 // Content-Type: text/plain\r\n
                 // \r\n
                 2 => {
@@ -158,6 +180,9 @@ impl MultiPart {
                         if line_type.ends_with(b"\r") {
                             line_type.pop();
                         }
+
+                        println!("{}\n", String::from_utf8_lossy(&line));
+
                         let content_type: Vec<&str> = str::from_utf8(&line_type)
                             .unwrap()
                             .split(":")
@@ -208,7 +233,7 @@ impl MultiPart {
                     }
 
                     Err(err) => {
-                        println!("Err occured when read body: {}", err);
+                        println!("Err occurred when read body: {}", err);
                         return Err(err);
                     }
                 }
@@ -324,23 +349,6 @@ impl MultiPart {
             self.remaining_bytes = Vec::new();
         }
     }
-
-    /*
-    POST /foo HTTP/1.1
-    Content-Length: 68137
-    Content-Type: multipart/form-data; boundary=---------------------------974767299852498929531610575
-
-    -----------------------------974767299852498929531610575
-    Content-Disposition: form-data; name="description"
-
-    some text
-    -----------------------------974767299852498929531610575
-    Content-Disposition: form-data; name="myFile"; filename="foo.txt"
-    Content-Type: text/plain
-
-    (content of the uploaded file foo.txt)
-    -----------------------------974767299852498929531610575--
-    */
 
     fn handle_content_disposition(&mut self, content_disposition: &[u8]) {
         let str = String::from_utf8(content_disposition.to_vec()).unwrap();

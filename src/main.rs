@@ -1,17 +1,19 @@
 use rustweb::context::{Context, ContextFn};
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::PathBuf;
 
 fn main() {
-    let web = rustweb::build_server("127.0.0.1", 7878);
+    let web = rustweb::build_server("0.0.0.0", 7878);
 
     web.get("/hello", hello_handler);
     web.get("/net/ip", ip_handler);
+    web.get("/file/apk", apk_handler);
 
     web.post("/update", update_handler);
     web.post("/file/upload", upload_handler);
     web.post("/file/multipart", multipart_handler);
-    
+
     web.run();
 }
 
@@ -28,6 +30,39 @@ fn update_handler(mut c: Context) {
     c.request.parse_post_form();
     println!("form: {:?}", c.request.post_form);
     c.json(content.as_bytes());
+}
+
+// http://127.0.0.1:7878/file/apk?brand=gwm&version=1609&filename=wp1609.apk
+fn apk_handler(mut c: Context) {
+    let parent_dir = "/Users/sfdex/File/apk";
+    let brand = c.request.query("brand");
+    let version = c.request.query("version");
+    let filename = c.request.query("filename");
+    if brand.is_empty() || filename.is_empty() {
+        c.error();
+        return;
+    }
+    
+    /*let path = format!("{}/{}/{}", parent_dir, brand,
+        if version.is_empty() {
+            filename.to_string()
+        } else {
+            format!("{}/{}", version, filename)
+        }
+    );*/
+
+    let mut path = PathBuf::from(parent_dir);
+    path.push(brand);
+    if !version.is_empty() { path.push(version)  }
+    path.push(&filename);
+
+    let file_result = File::open(&path);
+    println!("apk_handler, path={:?}, {:?}", path, file_result);
+
+    match file_result {
+        Ok(file) => c.file(file, filename),
+        Err(_) => c.error(),
+    }
 }
 
 fn upload_handler(mut c: Context) {

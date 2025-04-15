@@ -65,7 +65,7 @@ impl RustWeb {
 fn handle_connection(conn: Connection) {
     match Context::new(conn) {
         Err(err) => {
-            println!("error occured: {}", err);
+            println!("error occurred at handle_connection: {}", err);
         }
 
         Ok(mut context) => {
